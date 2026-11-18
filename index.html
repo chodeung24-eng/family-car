@@ -1,0 +1,406 @@
+<!DOCTYPE html>
+<html lang="ko">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>우리 가족 차 예약</title>
+<script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2"></script>
+<script>
+  // ▼▼▼ 이 두 줄만 내 Supabase 값으로 바꾸세요 (작은따옴표 ' ' 는 그대로 두기) ▼▼▼
+  const SUPABASE_URL = 'https://YOUR-PROJECT.supabase.co';
+  const SUPABASE_KEY = 'sb_publishable_YOUR-KEY';
+  // ▲▲▲ 여기까지 ▲▲▲
+</script>
+<style>
+  :root {
+    --bg: #f5f6fa; --card: #ffffff; --ink: #1f2430; --muted: #6b7280;
+    --line: #e5e7eb; --brand: #2f6fed; --brand-soft: #e8efff;
+    --ok: #12805c; --ok-soft: #e6f6ef; --err: #c0362c; --err-soft: #fdecea;
+    --today: #fff7d6; --past: #f1f2f4;
+  }
+  * { box-sizing: border-box; }
+  body { margin: 0; font-family: "Pretendard", "Apple SD Gothic Neo", "Malgun Gothic", sans-serif;
+         background: var(--bg); color: var(--ink); }
+  header { background: var(--brand); color: #fff; padding: 20px 16px; text-align: center; }
+  header h1 { margin: 0; font-size: 1.5rem; }
+  header p { margin: 6px 0 0; opacity: .85; font-size: .95rem; }
+  main { max-width: 960px; margin: 0 auto; padding: 16px; display: grid; gap: 16px; }
+  .card { background: var(--card); border-radius: 14px; padding: 16px; box-shadow: 0 1px 3px rgba(0,0,0,.06); }
+  .card h2 { margin: 0 0 12px; font-size: 1.1rem; }
+  .notice { position: sticky; top: 8px; z-index: 10; padding: 12px 14px; border-radius: 10px; font-weight: 600; }
+  .notice.ok { background: var(--ok-soft); color: var(--ok); }
+  .notice.err { background: var(--err-soft); color: var(--err); }
+  .hidden { display: none; }
+  .tabs { display: flex; gap: 8px; flex-wrap: wrap; }
+  .tab { border: 2px solid var(--line); background: #fff; border-radius: 999px; padding: 8px 16px;
+         font-size: 1rem; cursor: pointer; }
+  .tab small { color: var(--muted); margin-left: 4px; }
+  .tab.active { border-color: var(--brand); background: var(--brand-soft); color: var(--brand); font-weight: 700; }
+  .week-nav { display: flex; gap: 8px; align-items: center; flex-wrap: wrap; margin-bottom: 12px; }
+  .week-nav span { font-weight: 700; margin-right: auto; }
+  button { font-family: inherit; }
+  .btn { border: 1px solid var(--line); background: #fff; border-radius: 8px; padding: 6px 12px; cursor: pointer; }
+  .btn:hover { background: var(--bg); }
+  .table-wrap { overflow-x: auto; }
+  table { width: 100%; border-collapse: collapse; min-width: 640px; table-layout: fixed; }
+  th, td { border: 1px solid var(--line); padding: 6px; text-align: center; vertical-align: middle; font-size: .9rem; }
+  th { background: var(--bg); }
+  th.slot { width: 92px; }
+  .today { background: var(--today); }
+  .past { background: var(--past); color: var(--muted); }
+  .booked { background: var(--brand-soft); border-radius: 8px; padding: 6px 4px; }
+  .booked b { display: block; color: var(--brand); }
+  .booked span { font-size: .8rem; color: var(--muted); }
+  .add { width: 100%; border: 1px dashed var(--line); background: transparent; border-radius: 8px;
+         padding: 10px 0; color: var(--muted); cursor: pointer; }
+  .add:hover { border-color: var(--brand); color: var(--brand); }
+  form { display: grid; grid-template-columns: repeat(auto-fit, minmax(180px, 1fr)); gap: 12px; }
+  label { display: grid; gap: 4px; font-size: .9rem; font-weight: 600; }
+  input, select { font: inherit; padding: 10px; border: 1px solid var(--line); border-radius: 8px; }
+  .submit { grid-column: 1 / -1; background: var(--brand); color: #fff; border: 0; border-radius: 10px;
+            padding: 12px; font-size: 1.05rem; font-weight: 700; cursor: pointer; }
+  .submit:disabled { opacity: .6; }
+  .item { display: flex; justify-content: space-between; align-items: center; gap: 8px;
+          padding: 10px 0; border-bottom: 1px solid var(--line); }
+  .item:last-child { border-bottom: 0; }
+  .item .who { font-weight: 700; }
+  .item .meta { color: var(--muted); font-size: .9rem; }
+  .cancel { border: 1px solid var(--err); color: var(--err); background: #fff; border-radius: 8px;
+            padding: 6px 12px; cursor: pointer; flex-shrink: 0; }
+  .empty { color: var(--muted); text-align: center; padding: 12px; }
+</style>
+</head>
+<body>
+<header>
+  <h1>🚗 우리 가족 차 예약</h1>
+  <p>누가 언제 차를 쓰는지 한눈에 봐요</p>
+</header>
+
+<main>
+  <div id="notice" class="notice hidden"></div>
+
+  <section class="card">
+    <h2>차 고르기</h2>
+    <div id="carTabs" class="tabs"></div>
+  </section>
+
+  <section class="card">
+    <div class="week-nav">
+      <span id="weekLabel"></span>
+      <button class="btn" id="prevWeek">◀ 이전 주</button>
+      <button class="btn" id="thisWeek">이번 주</button>
+      <button class="btn" id="nextWeek">다음 주 ▶</button>
+    </div>
+    <div class="table-wrap"><table id="schedule"></table></div>
+  </section>
+
+  <section class="card" id="formCard">
+    <h2>예약하기</h2>
+    <form id="form">
+      <label>차 <select id="fCar" required></select></label>
+      <label>날짜 <input type="date" id="fDate" required></label>
+      <label>시간대
+        <select id="fSlot" required>
+          <option value="1">오전 (6~12시)</option>
+          <option value="2">오후 (12~18시)</option>
+          <option value="3">저녁 (18~24시)</option>
+        </select>
+      </label>
+      <label>누가 써요? <input id="fName" maxlength="20" required placeholder="예: 아빠"></label>
+      <label>어디 가요? <input id="fPurpose" maxlength="50" placeholder="예: 마트 장보기 (선택)"></label>
+      <button class="submit" id="submitBtn" type="submit">예약하기</button>
+    </form>
+  </section>
+
+  <section class="card">
+    <h2>다가오는 예약</h2>
+    <div id="list"></div>
+  </section>
+</main>
+
+<script>
+  // ---------- 기본 설정 ----------
+  const SLOTS = { 1: '오전', 2: '오후', 3: '저녁' };
+  const SLOT_TIMES = { 1: '6~12시', 2: '12~18시', 3: '18~24시' };
+  const DAYS = ['일', '월', '화', '수', '목', '금', '토'];
+  let db = null;
+  let cars = [];
+  let currentCarId = null;
+  let weekStart = mondayOf(new Date());
+
+  const $ = (id) => document.getElementById(id);
+
+  // ---------- 날짜 도우미 (한국 시간 기준) ----------
+  function pad(n) { return String(n).padStart(2, '0'); }
+  function ymd(d) { return d.getFullYear() + '-' + pad(d.getMonth() + 1) + '-' + pad(d.getDate()); }
+  function parseYmd(s) { const [y, m, d] = s.split('-').map(Number); return new Date(y, m - 1, d); }
+  function addDays(d, n) { const x = new Date(d); x.setDate(x.getDate() + n); return x; }
+  function mondayOf(d) {
+    const x = new Date(d.getFullYear(), d.getMonth(), d.getDate());
+    x.setDate(x.getDate() - ((x.getDay() + 6) % 7));
+    return x;
+  }
+  function niceDate(s) { const d = parseYmd(s); return `${d.getMonth() + 1}월 ${d.getDate()}일 (${DAYS[d.getDay()]})`; }
+  function todayStr() { return ymd(new Date()); }
+  function carName(id) { const c = cars.find(c => c.id === id); return c ? c.name : '?'; }
+
+  // ---------- 알림 ----------
+  let noticeTimer;
+  function notify(msg, type = 'ok', stay = false) {
+    const n = $('notice');
+    n.textContent = msg;
+    n.className = 'notice ' + type;
+    clearTimeout(noticeTimer);
+    if (!stay) noticeTimer = setTimeout(() => n.classList.add('hidden'), 4000);
+  }
+
+  // ---------- 오류 코드를 쉬운 말로 ----------
+  function friendlyError(error) {
+    switch (error.code) {
+      case '23505': return '이미 예약된 시간이에요. 다른 시간을 골라 주세요.';
+      case '23514': return '입력값을 확인해 주세요. (이름은 20글자, 목적지는 50글자까지)';
+      case '23503': return '없는 차예요. 새로고침해 주세요.';
+      case '42501': return '권한이 없어요. Supabase의 RLS 정책을 확인해 주세요.';
+      default: return '문제가 생겼어요: ' + error.message;
+    }
+  }
+
+  // ---------- 시작 ----------
+  async function init() {
+    if (SUPABASE_URL.includes('YOUR-PROJECT') || SUPABASE_KEY.includes('YOUR-KEY')) {
+      notify('아직 Supabase 주소와 키가 들어가지 않았어요. index.html 맨 위 두 줄을 바꿔 주세요.', 'err', true);
+      return;
+    }
+    db = supabase.createClient(SUPABASE_URL, SUPABASE_KEY);
+
+    const { data, error } = await db.from('cars').select('*').order('id');
+    if (error) {
+      notify('차 목록을 불러오지 못했어요. 맨 위 URL과 키를 다시 확인해 주세요. (' + error.message + ')', 'err', true);
+      return;
+    }
+    cars = data;
+    if (!cars.length) {
+      notify('등록된 차가 없어요. Supabase의 cars 테이블에 차를 추가해 주세요.', 'err', true);
+      return;
+    }
+    currentCarId = cars[0].id;
+
+    $('fCar').innerHTML = '';
+    cars.forEach(c => {
+      const o = document.createElement('option');
+      o.value = c.id;
+      o.textContent = c.name;
+      $('fCar').appendChild(o);
+    });
+    $('fDate').value = todayStr();
+    $('fDate').min = todayStr();
+
+    renderTabs();
+    await refresh();
+  }
+
+  // ---------- 차 탭 ----------
+  function renderTabs() {
+    const box = $('carTabs');
+    box.innerHTML = '';
+    cars.forEach(c => {
+      const b = document.createElement('button');
+      b.className = 'tab' + (c.id === currentCarId ? ' active' : '');
+      b.textContent = c.name;
+      if (c.description) {
+        const s = document.createElement('small');
+        s.textContent = c.description;
+        b.appendChild(s);
+      }
+      b.onclick = () => {
+        currentCarId = c.id;
+        $('fCar').value = c.id;
+        renderTabs();
+        loadWeek();
+      };
+      box.appendChild(b);
+    });
+  }
+
+  async function refresh() { await Promise.all([loadWeek(), loadList()]); }
+
+  // ---------- 주간 시간표 ----------
+  async function loadWeek() {
+    if (!db) return;
+    const from = ymd(weekStart);
+    const to = ymd(addDays(weekStart, 6));
+    $('weekLabel').textContent =
+      `${weekStart.getMonth() + 1}/${weekStart.getDate()} ~ ${addDays(weekStart, 6).getMonth() + 1}/${addDays(weekStart, 6).getDate()}`;
+
+    const { data, error } = await db.from('reservations')
+      .select('*')
+      .eq('car_id', currentCarId)
+      .gte('reserved_date', from)
+      .lte('reserved_date', to);
+    if (error) { notify(friendlyError(error), 'err'); return; }
+
+    const map = {};
+    data.forEach(r => { map[r.reserved_date + '_' + r.time_slot] = r; });
+
+    const table = $('schedule');
+    table.innerHTML = '';
+    const today = todayStr();
+
+    // 머리글 줄: 월~일
+    const head = document.createElement('tr');
+    const corner = document.createElement('th');
+    corner.className = 'slot';
+    corner.textContent = '시간대';
+    head.appendChild(corner);
+    for (let i = 0; i < 7; i++) {
+      const d = addDays(weekStart, i);
+      const th = document.createElement('th');
+      th.textContent = `${DAYS[d.getDay()]} ${d.getMonth() + 1}/${d.getDate()}`;
+      if (ymd(d) === today) th.className = 'today';
+      head.appendChild(th);
+    }
+    table.appendChild(head);
+
+    // 오전·오후·저녁 줄
+    [1, 2, 3].forEach(slot => {
+      const tr = document.createElement('tr');
+      const th = document.createElement('th');
+      th.className = 'slot';
+      th.innerHTML = `${SLOTS[slot]}<br><small>${SLOT_TIMES[slot]}</small>`;
+      tr.appendChild(th);
+
+      for (let i = 0; i < 7; i++) {
+        const dateStr = ymd(addDays(weekStart, i));
+        const td = document.createElement('td');
+        if (dateStr === today) td.className = 'today';
+        if (dateStr < today) td.className = 'past';
+
+        const r = map[dateStr + '_' + slot];
+        if (r) {
+          const div = document.createElement('div');
+          div.className = 'booked';
+          const b = document.createElement('b');
+          b.textContent = r.driver_name;
+          div.appendChild(b);
+          if (r.purpose) {
+            const s = document.createElement('span');
+            s.textContent = r.purpose;
+            div.appendChild(s);
+          }
+          td.appendChild(div);
+        } else if (dateStr >= today) {
+          const btn = document.createElement('button');
+          btn.className = 'add';
+          btn.textContent = '+ 예약';
+          btn.onclick = () => {
+            $('fCar').value = currentCarId;
+            $('fDate').value = dateStr;
+            $('fSlot').value = slot;
+            $('formCard').scrollIntoView({ behavior: 'smooth' });
+            $('fName').focus();
+          };
+          td.appendChild(btn);
+        } else {
+          td.textContent = '—';
+        }
+        tr.appendChild(td);
+      }
+      table.appendChild(tr);
+    });
+  }
+
+  // ---------- 다가오는 예약 목록 + 취소 ----------
+  async function loadList() {
+    if (!db) return;
+    const { data, error } = await db.from('reservations')
+      .select('*')
+      .gte('reserved_date', todayStr())
+      .order('reserved_date')
+      .order('time_slot')
+      .limit(50);
+    if (error) { notify(friendlyError(error), 'err'); return; }
+
+    const box = $('list');
+    box.innerHTML = '';
+    if (!data.length) {
+      box.innerHTML = '<div class="empty">아직 예약이 없어요.</div>';
+      return;
+    }
+    data.forEach(r => {
+      const row = document.createElement('div');
+      row.className = 'item';
+
+      const info = document.createElement('div');
+      const who = document.createElement('div');
+      who.className = 'who';
+      who.textContent = `${carName(r.car_id)} · ${r.driver_name}`;
+      const meta = document.createElement('div');
+      meta.className = 'meta';
+      meta.textContent = `${niceDate(r.reserved_date)} ${SLOTS[r.time_slot]}` + (r.purpose ? ` · ${r.purpose}` : '');
+      info.appendChild(who);
+      info.appendChild(meta);
+
+      const cancel = document.createElement('button');
+      cancel.className = 'cancel';
+      cancel.textContent = '취소';
+      cancel.onclick = () => cancelReservation(r);
+
+      row.appendChild(info);
+      row.appendChild(cancel);
+      box.appendChild(row);
+    });
+  }
+
+  async function cancelReservation(r) {
+    const ok = confirm(`${carName(r.car_id)} ${niceDate(r.reserved_date)} ${SLOTS[r.time_slot]} (${r.driver_name}) 예약을 취소할까요?`);
+    if (!ok) return;
+    const { data, error } = await db.from('reservations').delete().eq('id', r.id).select();
+    if (error) { notify(friendlyError(error), 'err'); return; }
+    if (!data || !data.length) {
+      notify('취소하지 못했어요. 이미 취소됐거나 삭제 정책이 없어요.', 'err');
+    } else {
+      notify('예약을 취소했어요.');
+    }
+    await refresh();
+  }
+
+  // ---------- 예약 저장 ----------
+  $('form').addEventListener('submit', async (e) => {
+    e.preventDefault();
+    if (!db) { notify('먼저 맨 위 URL과 키를 넣어 주세요.', 'err'); return; }
+
+    const row = {
+      car_id: Number($('fCar').value),
+      reserved_date: $('fDate').value,
+      time_slot: Number($('fSlot').value),
+      driver_name: $('fName').value.trim(),
+      purpose: $('fPurpose').value.trim() || null,
+    };
+    if (!row.driver_name) { notify('누가 쓰는지 이름을 적어 주세요.', 'err'); return; }
+    if (row.reserved_date < todayStr()) { notify('지난 날짜는 예약할 수 없어요.', 'err'); return; }
+
+    $('submitBtn').disabled = true;
+    const { error } = await db.from('reservations').insert(row);
+    $('submitBtn').disabled = false;
+
+    if (error) {
+      notify(friendlyError(error), 'err');
+    } else {
+      notify(`${niceDate(row.reserved_date)} ${SLOTS[row.time_slot]} ${carName(row.car_id)} 예약 완료!`);
+      $('fPurpose').value = '';
+      currentCarId = row.car_id;
+      weekStart = mondayOf(parseYmd(row.reserved_date));
+      renderTabs();
+    }
+    await refresh();
+  });
+
+  // ---------- 주 이동 ----------
+  $('prevWeek').onclick = () => { weekStart = addDays(weekStart, -7); loadWeek(); };
+  $('nextWeek').onclick = () => { weekStart = addDays(weekStart, 7); loadWeek(); };
+  $('thisWeek').onclick = () => { weekStart = mondayOf(new Date()); loadWeek(); };
+
+  init();
+</script>
+</body>
+</html>
